@@ -1,0 +1,793 @@
+\documentclass[11pt]{article}
+
+% --- packages -----------------------------------------------------------------
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm, mathtools}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage[numbers, sort&compress]{natbib}
+\usepackage{hyperref}
+
+\hypersetup{colorlinks=true, linkcolor=black!60!blue,
+  citecolor=black!60!blue, urlcolor=black!50!blue}
+
+\sloppy \hbadness=4000 \emergencystretch=3em
+
+% --- theorem environments -----------------------------------------------------
+\newtheorem{proposition}{Proposition}
+\newtheorem{theorem}[proposition]{Theorem}
+\newtheorem{corollary}[proposition]{Corollary}
+\newtheorem{lemma}[proposition]{Lemma}
+\theoremstyle{definition}
+\newtheorem{remark}{Remark}
+
+% --- colours and boxes --------------------------------------------------------
+\definecolor{derivframe}{HTML}{1a3a5c}\definecolor{derivblue}{HTML}{e8f0f8}
+\definecolor{bayesframe}{HTML}{8a6d2e}\definecolor{bayesbg}{HTML}{f6efe2}
+\definecolor{intuiframe}{HTML}{2f6b34}\definecolor{intuibg}{HTML}{e9f1e3}
+\definecolor{auditframe}{HTML}{6b2356}\definecolor{auditbg}{HTML}{f1e6ee}
+\definecolor{accent}{HTML}{b5341a}
+
+\newtcolorbox{derivation}[1][]{enhanced, breakable, colback=derivblue,
+  colframe=derivframe, boxrule=0.6pt, arc=2pt, fonttitle=\bfseries,
+  coltitle=white, colbacktitle=derivframe,
+  attach boxed title to top left={xshift=4pt, yshift=-2pt},
+  boxed title style={arc=2pt, boxrule=0pt}, title={\small Derivation #1},
+  left=8pt, right=8pt, top=14pt, bottom=8pt}
+\newtcolorbox{bayesianview}[1][]{enhanced, breakable, colback=bayesbg,
+  colframe=bayesframe, boxrule=0.6pt, arc=2pt, fonttitle=\bfseries,
+  coltitle=white, colbacktitle=bayesframe,
+  attach boxed title to top left={xshift=4pt, yshift=-2pt},
+  boxed title style={arc=2pt, boxrule=0pt}, title={\small Bayesian view #1},
+  left=8pt, right=8pt, top=14pt, bottom=8pt}
+\newtcolorbox{intuition}[1][]{enhanced, breakable, colback=intuibg,
+  colframe=intuiframe, boxrule=0.6pt, arc=2pt, fonttitle=\bfseries,
+  coltitle=white, colbacktitle=intuiframe,
+  attach boxed title to top left={xshift=4pt, yshift=-2pt},
+  boxed title style={arc=2pt, boxrule=0pt}, title={\small Reading #1},
+  left=8pt, right=8pt, top=14pt, bottom=8pt}
+\newtcolorbox{auditbox}[1][]{enhanced, breakable, colback=auditbg,
+  colframe=auditframe, boxrule=0.6pt, arc=2pt, fonttitle=\bfseries,
+  coltitle=white, colbacktitle=auditframe,
+  attach boxed title to top left={xshift=4pt, yshift=-2pt},
+  boxed title style={arc=2pt, boxrule=0pt}, title={\small Numerical check #1},
+  left=8pt, right=8pt, top=14pt, bottom=8pt}
+
+% --- macros -------------------------------------------------------------------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathcal{N}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Sig}{\Sigma}
+\newcommand{\Dt}{\Delta_t}
+\newcommand{\Qt}{Q_t}
+\newcommand{\given}{\,|\,}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\T}{^{\!\top}}
+\DeclareMathOperator{\Cov}{Cov}
+\DeclareMathOperator{\Var}{Var}
+\DeclareMathOperator{\diag}{diag}
+
+% --- tikz styles for factor graphs --------------------------------------------
+\tikzset{
+  var/.style={circle, draw=derivframe, fill=white, line width=0.8pt,
+              minimum size=8mm, inner sep=0pt},
+  fac/.style={rectangle, draw=derivframe, fill=derivframe!18, line width=0.8pt,
+              minimum size=5mm, inner sep=2pt},
+  obs/.style={rectangle, draw=accent, fill=accent!15, line width=0.8pt,
+              minimum size=5mm, inner sep=2pt},
+  edge/.style={line width=0.8pt, derivframe!70},
+  fwd/.style={-{Stealth[length=3mm]}, line width=1.3pt, accent},
+  bwd/.style={-{Stealth[length=3mm]}, line width=1.3pt, intuiframe},
+}
+
+\title{\bfseries Gaussian Belief Propagation for the Diffusion Score\\[2pt]
+\large A fully solvable AR(1) chain: factor graph, sum--product,
+Kalman, and AMP}
+\author{Giovanni Mantovani \and Marco \\[2pt]
+\small supervised by M.\ M\'ezard and J.\ Garnier-Brun}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+We study the \emph{joint} score of a diffusion model on a sequence of
+correlated frames, in the only setting where everything is closed form: a
+stationary Gaussian \textsc{ar}(1) Markov chain whose frames are independently
+corrupted by an Ornstein--Uhlenbeck channel. We derive the clean joint law, the
+noised joint law $P_t(x)=\N(0,\Sig_t)$, and the joint score
+$S(x,t)=-\Sig_t^{-1}x$, both directly and through Tweedie's Bayesian (denoiser)
+identity. We then write the posterior $p(a\given x)$ as a factor graph---a
+\emph{caterpillar tree}---and run belief propagation (BP) on it. We work the
+$K=3$ case out fully, message by message, with explicit forward and backward
+sweeps, and then give the general equations and their Gaussian specialisation,
+in which every message stays Gaussian by \emph{exact closure} (not a central
+limit argument): forward filtering is the Kalman filter, the forward--backward
+combination is the RTS smoother. We verify numerically that BP reproduces the
+exact score through the precision matrix at machine precision. Finally we
+contrast BP with approximate message passing (AMP): for this Gaussian model the
+posterior mean---hence the score---solves the same linear system for mean field,
+BP, and AMP, so \emph{all three give the same score}; they differ only in the
+variance estimate, where AMP's dense-graph closure is accurate at weak coupling
+but degrades and finally has no solution on the degree-two chain---making
+precise J.\ Garnier-Brun's remark that a central limit theorem ``on two points''
+need not hold. Two experiments close the note: locality (truncated-range
+messages) versus full sweeps, and the lifecycle of the precision matrix
+$\Sig_t^{-1}$ along diffusion time. All claims are backed by an independent
+numerical audit (59/59 checks pass); the code and a companion notebook
+reproduce every figure.
+\end{abstract}
+
+\tableofcontents
+\medskip
+\hrule
+\medskip
+
+% =============================================================================
+\section{Setup and notation}\label{sec:setup}
+% =============================================================================
+
+We follow the notation of \citet{mezard2009information} and of the handwritten
+project notebook. A \emph{sequence} is $K$ scalar frames
+\(a=(a_0,a_1,\dots,a_{K-1})\in\R^K\), indexed by an internal (frame) time
+$k=0,\dots,K-1$. The frames are generated by a stationary Gaussian
+\textsc{ar}(1) Markov chain,
+\begin{equation}\label{eq:ar1}
+  a_{k+1}=\alpha\,a_k+\eta_k,\qquad \eta_k\sim\N(0,\sigma_\eta^2)\ \text{i.i.d.},
+  \qquad |\alpha|<1,\qquad a_0\sim\N(0,\sigma_0^2).
+\end{equation}
+Throughout we take the \emph{stationary, unit-variance} normalisation
+\begin{equation}\label{eq:stationary-norm}
+  \sigma_\eta^2=1-\alpha^2,\qquad
+  \sigma_0^2=\sigma_\infty^2=\frac{\sigma_\eta^2}{1-\alpha^2}=1,
+\end{equation}
+so that $\Var(a_k)=1$ for every $k$ (derived in \S\ref{sec:clean}). The OU
+\emph{diffusion} acts independently on each frame at diffusion time $t\ge0$:
+\begin{equation}\label{eq:ou}
+  x_k=e^{-t}a_k+\xi_k,\qquad \xi_k\sim\N(0,\Dt),\qquad \Dt:=1-e^{-2t}.
+\end{equation}
+This is the variance-preserving OU channel
+$\dd x=-x\,\dd t+\sqrt{2}\,\dd W$: at $t=0$, $x_k=a_k$; as $t\to\infty$,
+$x_k\to\N(0,1)$, and indeed $\Var(x_k)=e^{-2t}\cdot1+\Dt=1$ for all $t$.
+
+\begin{center}\small
+\begin{tabular}{@{}ll@{\quad}ll@{}}
+\toprule
+$k$ & frame index ($0,\dots,K-1$) & $t$ & diffusion (noise) time\\
+$a_k$ & clean frame & $x_k$ & noisy observation of $a_k$ at time $t$\\
+$\alpha$ & \textsc{ar}(1) coupling & $\sigma_\eta^2=1-\alpha^2$ & innovation variance\\
+$\Dt=1-e^{-2t}$ & OU noise variance & $\Sig_0,\ \Sig_t$ & clean / noised covariance\\
+$Q_t=\Sig_t^{-1}$ & noised precision (score) & $J$ & posterior precision (\S\ref{sec:posterior})\\
+$S(x,t)$ & \textbf{joint} score $\nabla_x\log P_t$ & $\langle\cdot\rangle_{a\given x}$ & posterior expectation\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{remark}[Joint, not marginal]
+The object of interest is the \emph{joint} score
+$S(x,t)=\nabla_{(x_0,\dots,x_{K-1})}\log P_t(x_0,\dots,x_{K-1})\in\R^K$, which
+couples each frame to all the others through the correlations of the chain. The
+per-frame marginal score $\nabla_{x_k}\log p_t(x_k)$ would treat the frames as
+independent and is \emph{not} what we study.
+\end{remark}
+
+% =============================================================================
+\section{The clean joint distribution}\label{sec:clean}
+% =============================================================================
+
+\subsection{Autocovariance and stationarity}
+
+Unrolling \eqref{eq:ar1} from $a_0$,
+$a_k=\alpha^k a_0+\sum_{j=0}^{k-1}\alpha^{k-1-j}\eta_j$.
+
+\begin{derivation}[: variance of $a_k$ and stationarity]
+Since $a_0\perp\eta_j$ and the $\eta_j$ are i.i.d.\ with
+$\Cov(\eta_j,\eta_{j'})=\sigma_\eta^2\delta_{jj'}$,
+\[
+  \Var(a_k)=\alpha^{2k}\sigma_0^2
+   +\sigma_\eta^2\sum_{j=0}^{k-1}\alpha^{2(k-1-j)}
+   =\alpha^{2k}\sigma_0^2+\sigma_\eta^2\,\frac{1-\alpha^{2k}}{1-\alpha^2}.
+\]
+With the stationary choice \eqref{eq:stationary-norm},
+$\sigma_0^2=\sigma_\eta^2/(1-\alpha^2)$, the two terms combine to
+$\sigma_\eta^2/(1-\alpha^2)=1$ for \emph{all} $k$: the chain is stationary from
+frame $0$. For $|\alpha|=1$ the variance grows like $k\sigma_\eta^2$ (random
+walk); for $|\alpha|>1$ it grows like $\alpha^{2k}$ (explosive). We keep
+$|\alpha|<1$.
+\end{derivation}
+
+By the same computation $\Cov(a_i,a_j)=\alpha^{|i-j|}$, so the clean covariance
+is the Toeplitz matrix
+\begin{equation}\label{eq:Sigma0}
+  \Sig_0[i,j]=\alpha^{|i-j|}\qquad(\sigma_\infty^2=1).
+\end{equation}
+
+\subsection{Markov factorisation and the tridiagonal precision}
+
+The joint density factorises by the chain rule and the Markov property,
+\begin{equation}\label{eq:P0}
+  P_0(a)=p_0(a_0)\prod_{k=0}^{K-2}M(a_{k+1}\given a_k)
+        =\N(a_0;0,1)\prod_{k=0}^{K-2}\N(a_{k+1};\alpha a_k,\sigma_\eta^2).
+\end{equation}
+
+\begin{proposition}[Tridiagonal clean precision]\label{prop:Q0}
+$Q_0:=\Sig_0^{-1}$ is tridiagonal:
+\[
+  (Q_0)_{kk}=\frac{1+\alpha^2}{\sigma_\eta^2}\ \text{(interior)},\quad
+  (Q_0)_{00}=(Q_0)_{K-1,K-1}=\frac{1}{\sigma_\eta^2},\quad
+  (Q_0)_{k,k\pm1}=-\frac{\alpha}{\sigma_\eta^2}.
+\]
+\end{proposition}
+\begin{derivation}[\ref*{prop:Q0}: from the log-density]
+$-2\log P_0(a)=a_0^2+\sum_{k}(a_{k+1}-\alpha a_k)^2/\sigma_\eta^2+\text{const}$.
+The coefficient of $a_k^2$ collects one term from each adjacent transition,
+giving $(1+\alpha^2)/\sigma_\eta^2$ in the interior; the coefficient of
+$a_ka_{k+1}$ is $-\alpha/\sigma_\eta^2$; there is no $a_ka_{k+d}$ term for
+$d\ge2$. Hence $Q_0=\nabla^2(-\log P_0)$ is tridiagonal.
+\end{derivation}
+
+\begin{intuition}[: tridiagonality is Markovianity, not Gaussianity]
+$\Sig_0$ (covariance) is \emph{dense}; its inverse $Q_0$ (precision) is
+\emph{tridiagonal}. A zero in the precision means conditional independence given
+the rest. The chain couples only neighbours, so all entries beyond the first
+off-diagonal vanish. This sparsity is the signature of the \emph{Markov}
+structure, and it is the only sparse object in the whole story.
+\end{intuition}
+
+% =============================================================================
+\section{The noisy joint distribution and the score}\label{sec:noisy}
+% =============================================================================
+
+The channel \eqref{eq:ou} is applied independently to each frame, so given the
+clean sequence,
+\(p_t(x\given a)=\prod_{k=0}^{K-1}\N(x_k;e^{-t}a_k,\Dt)\),
+and the noised joint law marginalises over the clean sequence:
+\begin{equation}\label{eq:Pt-int}
+  P_t(x)=\int_{\R^K} P_0(a)\,\prod_{k=0}^{K-1}\N(x_k;e^{-t}a_k,\Dt)\,\dd a .
+\end{equation}
+
+\begin{proposition}[Noised covariance]\label{prop:Sigt}
+$P_t$ is the zero-mean Gaussian $P_t(x)=\N(x;0,\Sig_t)$ with
+\begin{equation}\label{eq:Sigt}
+  \Sig_t=e^{-2t}\Sig_0+\Dt\,I_K .
+\end{equation}
+\end{proposition}
+\begin{derivation}[\ref*{prop:Sigt}: mean and covariance of $x$]
+$\E[x_k]=e^{-t}\E[a_k]=0$. For the covariance, with $x_i=e^{-t}a_i+\xi_i$ and
+$\xi\perp a$,
+\[
+  \Cov(x_i,x_j)=e^{-2t}\Cov(a_i,a_j)+\E[\xi_i\xi_j]
+   =e^{-2t}(\Sig_0)_{ij}+\Dt\,\delta_{ij}.
+\]
+A linear-Gaussian marginalisation of a Gaussian is Gaussian, so
+\eqref{eq:Sigt} holds.
+\end{derivation}
+
+\subsection{The score, directly}
+
+Since $\log P_t(x)=-\tfrac12 x\T\Sig_t^{-1}x+\text{const}$ and
+$\nabla_x(x\T A x)=(A+A\T)x=2\Sig_t^{-1}x$ for symmetric $A=\Sig_t^{-1}$,
+\begin{equation}\label{eq:score-matrix}
+  \boxed{\,S(x,t)=\nabla_x\log P_t(x)=-\Sig_t^{-1}x=-Q_t\,x\,}\qquad Q_t:=\Sig_t^{-1}.
+\end{equation}
+The score is \emph{linear} in $x$ (Gaussianity), and its coupling structure is
+exactly that of the precision $Q_t$.
+
+\subsection{The score, the Bayesian (M\'ezard) way}
+
+\begin{bayesianview}[: the score is a denoiser (Tweedie)]
+Differentiating \eqref{eq:Pt-int} under the integral and using
+$\partial_{x_k}\N(x_k;e^{-t}a_k,\Dt)=\frac{e^{-t}a_k-x_k}{\Dt}\N(\cdots)$,
+\[
+  \partial_{x_k}\log P_t(x)
+   =\frac{1}{P_t(x)}\!\int\!\frac{e^{-t}a_k-x_k}{\Dt}\,P_0(a)\,p_t(x\given a)\,\dd a
+   =\Big\langle\frac{e^{-t}a_k-x_k}{\Dt}\Big\rangle_{a\given x},
+\]
+because $P_0(a)p_t(x\given a)=P_t(x)\,p(a\given x)$ (Bayes). Hence the
+\emph{Tweedie identity}~\citep{efron2011tweedie,vincent2011connection}
+\begin{equation}\label{eq:tweedie}
+  \boxed{\,S_k(x,t)=\frac{e^{-t}\,\langle a_k\rangle_{a\given x}-x_k}{\Dt}\,}
+\end{equation}
+where $\langle a_k\rangle_{a\given x}$ is the posterior mean of the clean frame.
+To compute the $k$-th component of the joint score we must know the posterior
+mean of $a_k$ given the \emph{whole} noisy sequence $x$.
+\end{bayesianview}
+
+\begin{intuition}[: the two forms agree]
+Equations \eqref{eq:score-matrix} and \eqref{eq:tweedie} are the same vector.
+Indeed the posterior mean is linear, $\langle a\rangle_{a\given x}=C_t\,x$ for a
+matrix $C_t$ (\S\ref{sec:posterior}), and substituting into \eqref{eq:tweedie}
+returns $-Q_t x$. The numerical audit confirms
+$\|S_{\text{matrix}}-S_{\text{Tweedie}}\|<10^{-12}$.
+\end{intuition}
+
+% =============================================================================
+\section{The posterior and its factor graph}\label{sec:posterior}
+% =============================================================================
+
+By Bayes, the posterior over the clean sequence given the (fixed) observations
+$x$ is
+\begin{equation}\label{eq:posterior}
+  p(a\given x)\ \propto\ P_0(a)\,p_t(x\given a)
+  =\underbrace{\N(a_0;0,1)}_{\psi_{\mathrm{pr}}(a_0)}
+   \prod_{k=0}^{K-2}\underbrace{\N(a_{k+1};\alpha a_k,\sigma_\eta^2)}_{\psi^{(k)}_{\mathrm{tr}}(a_k,a_{k+1})}
+   \prod_{k=0}^{K-1}\underbrace{\N(x_k;e^{-t}a_k,\Dt)}_{\psi^{(k)}_{\mathrm{ob}}(a_k)} .
+\end{equation}
+It is a product of Gaussian factors, hence itself Gaussian. Completing the
+square gives
+\begin{equation}\label{eq:posterior-J}
+  p(a\given x)=\N(a;m,J^{-1}),\qquad
+  J=\frac{e^{-2t}}{\Dt}\,I+Q_0,\qquad
+  m=J^{-1}h,\quad h=\frac{e^{-t}}{\Dt}\,x .
+\end{equation}
+The posterior precision $J$ is again tridiagonal ($Q_0$ tridiagonal plus a
+diagonal), and $\langle a\rangle_{a\given x}=m=J^{-1}h$ is linear in $x$, as
+promised.
+
+\subsection{Factor graph}
+
+A \emph{factor graph} is the bipartite graph whose variable nodes are the
+$a_k$ and whose factor nodes are the local factors of \eqref{eq:posterior}; an
+edge joins a factor to a variable iff the variable is an argument of the
+factor~\citep{kschischang2001factor}. The observations $x_k$ are \emph{not}
+variable nodes---they are clamped constants inside the observation factors
+$\psi^{(k)}_{\mathrm{ob}}$. For $K$ frames there are $2K$ factors
+($1$ prior $+\ (K-1)$ transitions $+\ K$ observations).
+
+\begin{figure}[h]\centering
+\begin{tikzpicture}[node distance=14mm]
+  \node[var] (a0) at (0,0) {$a_0$};
+  \node[var] (a1) at (3,0) {$a_1$};
+  \node[var] (a2) at (6,0) {$a_2$};
+  \node[fac] (pr) at (-1.8,0) {$\psi_{\mathrm{pr}}$};
+  \node[fac] (t01) at (1.5,0) {$\psi^{(0)}_{\mathrm{tr}}$};
+  \node[fac] (t12) at (4.5,0) {$\psi^{(1)}_{\mathrm{tr}}$};
+  \node[obs] (o0) at (0,-1.6) {$\psi^{(0)}_{\mathrm{ob}}$};
+  \node[obs] (o1) at (3,-1.6) {$\psi^{(1)}_{\mathrm{ob}}$};
+  \node[obs] (o2) at (6,-1.6) {$\psi^{(2)}_{\mathrm{ob}}$};
+  \draw[edge] (pr)--(a0); \draw[edge] (a0)--(t01)--(a1)--(t12)--(a2);
+  \draw[edge] (a0)--(o0); \draw[edge] (a1)--(o1); \draw[edge] (a2)--(o2);
+  \node[below=1.5mm of o0,accent,font=\scriptsize] {$x_0$ (clamped)};
+  \node[below=1.5mm of o1,accent,font=\scriptsize] {$x_1$};
+  \node[below=1.5mm of o2,accent,font=\scriptsize] {$x_2$};
+\end{tikzpicture}
+\caption{Factor graph of $p(a\given x)$ for $K=3$. Circles: variable (clean
+frame) nodes. Blue squares: prior and transition factors. Red squares:
+observation factors carrying the clamped data $x_k$. The graph is a
+\emph{caterpillar tree}---a backbone $a_0$--$a_1$--$a_2$ with one leaf factor
+per node---hence has no cycles.}
+\label{fig:fg}
+\end{figure}
+
+\begin{proposition}[Tree $\Rightarrow$ BP exact]\label{prop:tree}
+The factor graph in Fig.~\ref{fig:fg} is connected and acyclic. By the
+tree-exactness of belief propagation \citep[Th.~14.1]{mezard2009information},
+the BP marginals equal the exact marginals of $p(a\given x)$.
+\end{proposition}
+
+\begin{intuition}[: this is exactly the geometry J.\ Garnier-Brun described]
+The graph is ``very tree-like---a straight line with things on the side.''
+Every interior frame node has degree three (two transition factors $+$ one
+observation), and every BP update combines only a \emph{small, fixed} number of
+incoming messages. This is the opposite of the dense graphs for which AMP is
+designed (\S\ref{sec:amp}).
+\end{intuition}
+
+% =============================================================================
+\section{Belief propagation: the $K=3$ chain, explicitly}\label{sec:bp3}
+% =============================================================================
+
+We first recall the general sum--product rules
+\citep{mezard2009information,kschischang2001factor}, then execute them by hand
+on Fig.~\ref{fig:fg}. There are two kinds of message, both functions of the
+receiving variable: variable-to-factor $\nu_{a_k\to\psi}$ and factor-to-variable
+$\hat\nu_{\psi\to a_k}$,
+\begin{align}
+  \nu_{i\to a}(a_i)&\ \propto\ \prod_{b\in\partial i\setminus a}\hat\nu_{b\to i}(a_i),
+    \label{eq:vp-rule}\\
+  \hat\nu_{a\to i}(a_i)&\ \propto\ \int \psi_a(a_{\partial a})
+     \prod_{j\in\partial a\setminus i}\nu_{j\to a}(a_j)\ \dd a_{\partial a\setminus i},
+    \label{eq:fp-rule}\\
+  p(a_i)&\ \propto\ \prod_{a\in\partial i}\hat\nu_{a\to i}(a_i).
+    \label{eq:belief-rule}
+\end{align}
+On a chain these collapse into a single \emph{forward} sweep and a single
+\emph{backward} sweep. We use \emph{Convention A}: the forward message into
+$a_k$ carries the evidence $x_0,\dots,x_{k-1}$ only, the backward message
+carries $x_{k+1},\dots,x_{K-1}$ only, and the local evidence
+$\psi^{(k)}_{\mathrm{ob}}$ is multiplied in at combination time---never inside a
+recursion. This is the one bookkeeping that avoids double-counting $x_k$.
+
+\begin{figure}[h]\centering
+\begin{tikzpicture}[node distance=14mm]
+  % forward
+  \begin{scope}
+  \node[var] (a0) at (0,0) {$a_0$};
+  \node[var] (a1) at (3,0) {$a_1$};
+  \node[var] (a2) at (6,0) {$a_2$};
+  \node[fac] (pr) at (-1.8,0) {$\psi_{\mathrm{pr}}$};
+  \node[fac] (t01) at (1.5,0) {$\psi^{(0)}_{\mathrm{tr}}$};
+  \node[fac] (t12) at (4.5,0) {$\psi^{(1)}_{\mathrm{tr}}$};
+  \node[obs] (o0) at (0,-1.4) {$\psi^{(0)}_{\mathrm{ob}}$};
+  \node[obs] (o1) at (3,-1.4) {$\psi^{(1)}_{\mathrm{ob}}$};
+  \draw[edge] (a0)--(t01)--(a1)--(t12)--(a2);
+  \draw[edge] (a0)--(o0); \draw[edge] (a1)--(o1);
+  \draw[fwd] (pr)--(a0); \draw[fwd] (a0)--(t01);
+  \draw[fwd] (t01)--(a1); \draw[fwd] (a1)--(t12); \draw[fwd] (t12)--(a2);
+  \draw[fwd] (o0)--(a0); \draw[fwd] (o1)--(a1);
+  \node[font=\bfseries\small,accent] at (3,1.2)
+    {Forward sweep (filter): $\ \mu_{\to0}\Rightarrow\mu_{\to1}\Rightarrow\mu_{\to2}$};
+  \end{scope}
+  % backward
+  \begin{scope}[yshift=-3.6cm]
+  \node[var] (b0) at (0,0) {$a_0$};
+  \node[var] (b1) at (3,0) {$a_1$};
+  \node[var] (b2) at (6,0) {$a_2$};
+  \node[fac] (s01) at (1.5,0) {$\psi^{(0)}_{\mathrm{tr}}$};
+  \node[fac] (s12) at (4.5,0) {$\psi^{(1)}_{\mathrm{tr}}$};
+  \node[obs] (p1) at (3,-1.4) {$\psi^{(1)}_{\mathrm{ob}}$};
+  \node[obs] (p2) at (6,-1.4) {$\psi^{(2)}_{\mathrm{ob}}$};
+  \draw[edge] (b0)--(s01)--(b1)--(s12)--(b2);
+  \draw[edge] (b1)--(p1); \draw[edge] (b2)--(p2);
+  \draw[bwd] (b2)--(s12); \draw[bwd] (s12)--(b1);
+  \draw[bwd] (b1)--(s01); \draw[bwd] (s01)--(b0);
+  \draw[bwd] (p2)--(b2); \draw[bwd] (p1)--(b1);
+  \node[font=\bfseries\small,intuiframe] at (3,1.2)
+    {Backward sweep (smoother): $\ \mu_{\leftarrow2}\Rightarrow\mu_{\leftarrow1}\Rightarrow\mu_{\leftarrow0}$};
+  \end{scope}
+\end{tikzpicture}
+\caption{The two sweeps for $K=3$. Forward (red): information from the prior and
+from $x_0,x_1$ flows left to right. Backward (green): information from $x_2,x_1$
+flows right to left. The posterior at $a_k$ multiplies the forward message, the
+local evidence $\psi^{(k)}_{\mathrm{ob}}$, and the backward message.}
+\label{fig:sweeps}
+\end{figure}
+
+\subsection{Every message, by hand}
+
+Write each Gaussian message in \emph{information form}
+$\mu(a)\propto\exp(-\tfrac12\lambda a^2+\theta a)$, i.e.\ mean $\theta/\lambda$
+and variance $1/\lambda$. The local observation factor, read as a function of
+$a_k$, is
+\begin{equation}\label{eq:obs-info}
+  \psi^{(k)}_{\mathrm{ob}}(a_k)=\N(x_k;e^{-t}a_k,\Dt)\propto
+  \exp\!\Big(-\tfrac12\tfrac{e^{-2t}}{\Dt}a_k^2+\tfrac{e^{-t}}{\Dt}x_k\,a_k\Big)
+  \ \Leftrightarrow\ \big(\lambda_{\mathrm{ob}},\theta_{\mathrm{ob}}\big)
+  =\Big(\tfrac{e^{-2t}}{\Dt},\,\tfrac{e^{-t}}{\Dt}x_k\Big).
+\end{equation}
+
+\begin{derivation}[: forward sweep for $K=3$ (Convention A)]
+The forward message starts at the prior, $\mu_{\to0}=\psi_{\mathrm{pr}}=\N(a_0;0,1)$,
+i.e.\ $(\lambda,\theta)=(1,0)$. At each node we combine the forward message with
+the local evidence \eqref{eq:obs-info} (precisions and potentials add),
+\[
+  \lambda^c_k=\lambda^{\to}_k+\lambda_{\mathrm{ob}},\qquad
+  \theta^c_k=\theta^{\to}_k+\tfrac{e^{-t}}{\Dt}x_k,\qquad
+  m^c_k=\theta^c_k/\lambda^c_k,\quad v^c_k=1/\lambda^c_k,
+\]
+and push the result through the transition $\psi^{(k)}_{\mathrm{tr}}$ to the next
+node. The predict step uses
+$\int\N(a_{k+1};\alpha a_k,\sigma_\eta^2)\,\N(a_k;m^c_k,v^c_k)\,\dd a_k
+ =\N\!\big(a_{k+1};\alpha m^c_k,\ \alpha^2 v^c_k+\sigma_\eta^2\big)$, so
+\[
+  \mu_{\to k+1}=\N\big(a_{k+1};\ \alpha m^c_k,\ \alpha^2 v^c_k+\sigma_\eta^2\big).
+\]
+Concretely for $K=3$: $\mu_{\to0}\!=\!(1,0)\to$ combine $x_0\to$ predict
+$\Rightarrow\mu_{\to1}\to$ combine $x_1\to$ predict $\Rightarrow\mu_{\to2}$.
+This is exactly the \emph{Kalman filter} predict--update cycle.
+\end{derivation}
+
+\begin{derivation}[: backward sweep for $K=3$]
+The backward message starts flat at the last node,
+$\mu_{\leftarrow2}\equiv1$ (precision $\lambda=0$, uninformative). At node $k$ we
+combine $\mu_{\leftarrow k}$ with the local evidence to get $(m^c_k,v^c_k)$ and
+back-propagate through the transition $a_k=\alpha a_{k-1}+\eta_{k-1}$:
+\[
+  \mu_{\leftarrow k-1}=\N\!\Big(a_{k-1};\ \tfrac{m^c_k}{\alpha},\
+   \tfrac{v^c_k+\sigma_\eta^2}{\alpha^2}\Big).
+\]
+For $K=3$: $\mu_{\leftarrow2}\equiv1\to$ combine $x_2\to$ back-propagate
+$\Rightarrow\mu_{\leftarrow1}\to$ combine $x_1\to$ back-propagate
+$\Rightarrow\mu_{\leftarrow0}$.
+\end{derivation}
+
+\begin{derivation}[: combination $\Rightarrow$ posterior marginal]
+At every node the exact posterior marginal multiplies the three pieces meeting
+there---forward message, local evidence, backward message,
+\[
+  p(a_k\given x)\ \propto\ \mu_{\to k}(a_k)\,\psi^{(k)}_{\mathrm{ob}}(a_k)\,
+  \mu_{\leftarrow k}(a_k),
+\]
+i.e.\ in information form the precisions and potentials of the three add. The
+posterior mean is $\langle a_k\rangle_{a\given x}=\theta^{\mathrm{post}}_k/\lambda^{\mathrm{post}}_k$
+and the variance is $1/\lambda^{\mathrm{post}}_k$. Plugging the mean into the
+Tweedie identity \eqref{eq:tweedie} returns the score. This forward--backward
+combination is the \emph{Rauch--Tung--Striebel smoother}
+\citep{kalman1960,rauchtungstriebel1965}.
+\end{derivation}
+
+The companion notebook prints the numeric $(\text{mean},\text{variance})$ of
+every message for a concrete $K=3$ instance and checks the recombination
+against the matrix posterior \eqref{eq:posterior-J}.
+
+% =============================================================================
+\section{General $K$ and the Gaussian specialisation}\label{sec:bpK}
+% =============================================================================
+
+For general $K$ the same two recursions hold. Writing the forward
+(\emph{filtered}) message into $a_k$ as $\mu_{\to k}$ and the backward as
+$\mu_{\leftarrow k}$, the sum--product rules \eqref{eq:vp-rule}--\eqref{eq:fp-rule}
+on the chain are
+\begin{align}
+  \mu_{\to k+1}(a_{k+1})&=\int M(a_{k+1}\given a_k)\,\psi^{(k)}_{\mathrm{ob}}(a_k)\,
+    \mu_{\to k}(a_k)\,\dd a_k, &\mu_{\to0}&=p_0,\label{eq:fwd}\\
+  \mu_{\leftarrow k-1}(a_{k-1})&=\int M(a_k\given a_{k-1})\,\psi^{(k)}_{\mathrm{ob}}(a_k)\,
+    \mu_{\leftarrow k}(a_k)\,\dd a_k, &\mu_{\leftarrow K-1}&\equiv1,\label{eq:bwd}
+\end{align}
+and the marginal is the product
+$p(a_k\given x)\propto\mu_{\to k}\,\psi^{(k)}_{\mathrm{ob}}\,\mu_{\leftarrow k}$.
+Each sweep is $K-1$ one-dimensional integrals, so BP costs $O(K)$ versus the
+$O(K^3)$ of forming $J^{-1}$ directly.
+
+\begin{intuition}[: why the Gaussian case is special---answering the doubt about
+``are the messages Gaussian?'']
+Each operation in \eqref{eq:fwd}--\eqref{eq:bwd} maps Gaussians to Gaussians:
+the \emph{product} of two Gaussians is Gaussian (precisions add), and the
+\emph{integral} of a Gaussian against a Gaussian transition kernel is Gaussian
+(predict step). Therefore, started from Gaussian factors, every message is
+\emph{exactly} Gaussian and is carried by just two numbers $(\lambda,\theta)$.
+This closure is \emph{algebraic}---it holds for any node degree, on the
+two-input chain just as well as on a dense graph. It is \emph{not} a central
+limit approximation. Consequently the posterior is exactly Gaussian and BP is
+exact: the guess that ``BP in the Gaussian case recovers the right solution'' is
+correct, and the reason is closure, not averaging.
+\end{intuition}
+
+\begin{auditbox}[: BP reproduces the exact score]
+\texttt{numerical\_audit.py} runs \texttt{bp\_score.py} against the matrix
+posterior \eqref{eq:posterior-J} and the closed-form score
+\eqref{eq:score-matrix} over $80$ configurations
+($K\in\{2,3,5,8,16\}$, $\alpha\in\{0.2,0.5,0.9,-0.4\}$,
+$t\in\{0.05,0.3,1,3\}$). Maximum errors: posterior mean $1.3\times10^{-15}$,
+posterior variance $3.9\times10^{-15}$, joint score $1.2\times10^{-14}$. BP
+\emph{is} the score, recovered through the precision matrix.
+\end{auditbox}
+
+% =============================================================================
+\section{Approximate message passing}\label{sec:amp}
+% =============================================================================
+
+\subsection{The general idea}
+
+AMP (in physics, the TAP equations~\citep{zdeborova2021statistical}) is the
+message passing one uses when BP messages cannot be represented exactly and the
+graph is \emph{dense}. For a linear model $y=\Phi a+w$ with a dense
+measurement matrix $\Phi\in\R^{m\times N}$ and a separable prior, the factor
+graph is the complete bipartite graph: every factor touches \emph{all} $N$
+variables (Fig.~1 of \citet{genovese2026amp}). Each message is then a sum of
+many weakly dependent contributions, so by a central limit argument it is
+\emph{approximately Gaussian}, and one propagates only its mean and variance.
+The defining feature of AMP relative to naive iteration is the \emph{Onsager
+reaction term}, which subtracts each node's own back-influence; the variances
+become label-independent and the means obey a closed recursion---the AMP
+equations. Rigorously, \citet{genovese2026amp} show (for $\ell_2$ minimisation)
+that the BP means satisfy the AMP equations \emph{asymptotically} as
+$N\to\infty$, and note that on a \emph{tree} BP already reconstructs the measure
+exactly.
+
+\subsection{Our case}
+
+Our model is the opposite of the AMP regime: the measurement operator is
+\emph{diagonal} ($x=e^{-t}a+\text{noise}$), the coupling lives in the \emph{prior}
+(the \textsc{ar}(1) chain), and the factor graph is a degree-$\le2$ tree. None of
+AMP's structural assumptions (dense $\Phi$, many neighbours, separable prior)
+hold. To compare BP and AMP concretely we view the Gaussian posterior
+\eqref{eq:posterior-J} as a Gaussian Markov random field with the tridiagonal
+precision $J$ and field $h$, and ask three solvers for the marginals.
+
+\begin{intuition}[: the mean is shared, the variance is not]
+The posterior \emph{mean} solves the linear system $Jm=h$. Mean field, BP, and
+AMP are all iterative solvers of that \emph{same} system, so at their fixed
+point they return the \emph{same exact mean}---hence, via Tweedie
+\eqref{eq:tweedie}, the \emph{same score}. They differ only in the per-node
+\emph{variance} closure:
+\[
+ \text{mean field: } V_i=\tfrac1{J_{ii}};\qquad
+ \text{AMP/TAP: } V_i=\frac{1}{J_{ii}-\sum_{k\ne i}J_{ik}^2 V_k};\qquad
+ \text{BP/exact: } V_i=(J^{-1})_{ii}.
+\]
+The AMP closure is the cavity variance with the ``exclude one neighbour''
+correction dropped ($V_{k\to i}\approx V_k$). Dropping it is harmless when each
+node has \emph{many} weak neighbours---removing one changes the cavity by
+$O(1/N)$, the dense regime where AMP is exact---but on the chain each node has
+\emph{two} neighbours and removing one is an $O(1)$ change. This is precisely
+J.\ Garnier-Brun's observation that ``a central limit theorem on two data points
+is usually not right.''
+\end{intuition}
+
+\begin{auditbox}[: BP versus AMP, measured]
+On a \emph{dense} random SPD precision ($N=600$) the AMP variance matches the
+exact $\diag(J^{-1})$ to $1.7\times10^{-3}$, far better than mean field
+($1.3\times10^{-1}$): AMP works where it is designed to. On the \emph{chain}
+(Fig.~\ref{fig:bpamp}, $K=9$, $\alpha=0.8$): the AMP mean equals the exact mean
+to $\sim10^{-12}$ for every $t$ (\textbf{BP and AMP give the same score}); the
+AMP variance is accurate at small $t$ (evidence-dominated, weak coupling,
+error $1.3\times10^{-4}$ at $t=0.05$) but \emph{has no physical fixed point}
+once the coupling is strong enough (here $t\gtrsim0.4$): the self-consistent
+denominator $J_{ii}-\sum_k J_{ik}^2V_k$ turns negative. BP stays exact
+throughout.
+\end{auditbox}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{figures/fig_bp_vs_amp.png}
+\caption{\textbf{BP vs.\ AMP on the chain.} Left: the AMP \emph{mean} error
+(blue, $\approx10^{-12}$) is flat in $t$---the score is closure-independent, so
+BP and AMP coincide---while the AMP \emph{variance} error (red) grows and then
+the closure breaks down (shaded). Right: existence of the AMP variance fixed
+point over $(\alpha,t)$; green = exists (weak coupling / small $t$),
+red = breakdown (strong coupling). BP is exact everywhere.}
+\label{fig:bpamp}
+\end{figure}
+
+% =============================================================================
+\section{Experiment A: local messages versus full sweeps}\label{sec:expA}
+% =============================================================================
+
+How much does a frame's estimate depend on \emph{distant} frames? Define the
+\emph{local estimator of radius $r$} as the posterior mean of $a_k$ given only
+the observations within distance $r$,
+$\langle a_k\rangle_{a\given x_{k-r:k+r}}$, the rest of the chain marginalised
+out. Because any contiguous block of a stationary \textsc{ar}(1) chain is itself
+a stationary \textsc{ar}(1) chain, this is computed exactly on the windowed
+sub-chain---the only approximation is the truncation of range. Taking
+$r\ge K-1$ recovers full BP, which is exact; so the gap
+$\|S^{\mathrm{local},r}-S^{\mathrm{full}}\|$ isolates the error due to locality.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{figures/fig_local_vs_full.png}
+\caption{\textbf{Locality.} Left: the error decays geometrically with the range
+$r$ and vanishes at $r=K-1$ (full chain, exact). Right: at fixed range the error
+is largest at \emph{intermediate} $t$---small at $t\to0$ (each frame is pinned by
+its own observation) and at $t\to\infty$ (the score decouples, $S\to-x$). The
+decay rate is set by the off-diagonal reach of $Q_t$ (\S\ref{sec:expB}): the
+more the band has filled, the longer the range needed.}
+\label{fig:local}
+\end{figure}
+
+\begin{intuition}[: in the Gaussian case the local approximation is controlled]
+Full BP is exact, so locality is the \emph{only} error, and it is governed by
+the decay of correlations ($\sim\alpha^{\text{distance}}$) and by how far the
+precision $Q_t$ reaches off the diagonal. A strictly-neighbour scheme ($r=1$)
+is exact at $t=0$ (where $Q_t=Q_0$ is tridiagonal) and accurate again at large
+$t$, but misses the filled band at intermediate $t$. The Gaussian model thus
+makes the local/discrete approximation \emph{quantitative}.
+\end{intuition}
+
+% =============================================================================
+\section{Experiment B: lifecycle of the precision matrix}\label{sec:expB}
+% =============================================================================
+
+The score \eqref{eq:score-matrix} is entirely controlled by $Q_t=\Sig_t^{-1}$.
+Its sparsity is the conditional-independence structure of $P_t$ as a Gaussian
+MRF (a zero in $Q_t$ = a conditional independence). We track how that structure
+evolves with diffusion time.
+
+\subsection{Shared eigenbasis and the eigenvalue flow}
+
+Because $\Sig_t=e^{-2t}\Sig_0+\Dt I$ adds only a multiple of the identity, the
+eigenvectors of $\Sig_t$ and of $Q_t$ are exactly those of $\Sig_0$ for every
+$t$; only the eigenvalues move,
+\begin{equation}\label{eq:spectral}
+  \Sig_0=U\diag(\lambda_i)U\T\ \Rightarrow\
+  \lambda_i(\Sig_t)=e^{-2t}\lambda_i+\Dt\ \to\ 1,\qquad
+  \lambda_i(Q_t)=\frac{1}{e^{-2t}\lambda_i+\Dt}\ \to\ 1 .
+\end{equation}
+Since $\Sig_0$ is symmetric Toeplitz, its eigenvectors are near-Fourier (cosine)
+modes (Fig.~\ref{fig:spectral}); diffusion contracts every eigenvalue toward $1$,
+so $Q_t\to I$ and the score $\to-x$.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{figures/fig_spectral.png}
+\caption{\textbf{Spectral decomposition.} Left: the eigenvalues
+$\lambda_i(\Sig_t)=e^{-2t}\lambda_i(\Sig_0)+\Dt$ all flow to $1$. Right: the
+shared eigenvectors of $\Sig_0$ (hence of $\Sig_t,Q_t$) are near-Fourier modes.
+In this basis the multivariate denoising decouples into $K$ scalar problems.}
+\label{fig:spectral}
+\end{figure}
+
+\subsection{Band-fill lifecycle}
+
+In the \emph{frame} basis the story is different and is the one of direct
+interest: $Q_t$ is tridiagonal only at $t=0$; for $t>0$ the band fills, and at
+large $t$ it collapses back to a (scaled) identity. Figure~\ref{fig:lifecycle}
+shows the three regimes.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{figures/fig_precision_lifecycle.png}
+\caption{\textbf{Lifecycle of $Q_t=\Sig_t^{-1}$.} Tridiagonal at $t=0$
+(Markov); the band fills for $t>0$ (dense); the magnitude collapses and
+$Q_t\to I$ as $t\to\infty$ (isotropic Gaussian).}
+\label{fig:lifecycle}
+\end{figure}
+
+The filling is quantitative. From the resolvent
+$Q_t=e^{2t}\sum_{m\ge0}(-c_t)^m Q_0^{m+1}$ with $c_t=e^{2t}-1=2t+O(t^2)$, the
+leading distance-$d$ entry comes from $m=d-1$:
+\begin{equation}\label{eq:bandfill}
+  (Q_t)_{i,i+d}=(-1)^{d-1}(2t)^{d-1}(Q_0^{\,d})_{i,i+d}+O(t^d).
+\end{equation}
+
+\begin{remark}[Correction to a published coefficient]
+An earlier internal note (\texttt{precision\_lifecycle\_summary.pdf}, eq.~12)
+printed \eqref{eq:bandfill} with a spurious $1/(d-1)!$ factor. That factor does
+\emph{not} follow from the resolvent expansion: the leading distance-$d$ term is
+the single $m=d-1$ contribution $(-c_t)^{d-1}$, with no combinatorial
+denominator. The numerical audit confirms the version above (no factorial) to
+better than $1\%$ for $d=1,\dots,5$; the factorial version fails the same test
+by factors that reach $800\%$ at $d=5$.
+\end{remark}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.74\linewidth]{figures/fig_band_fill.png}
+\caption{\textbf{Band fill, log--log.} Measured $|Q_t[i,i+d]|$ (dots) against the
+leading order \eqref{eq:bandfill} (solid, no factorial). Slopes $d-1=0,1,2,3,4$;
+agreement is exact at small $t$, with the expected departure as $t$ grows and
+the noise floor at $d=5$.}
+\label{fig:bandfill}
+\end{figure}
+
+\subsection{One number for the loss of structure}
+
+To summarise the lifecycle with a single curve, Fig.~\ref{fig:tridiagloss}
+plots $\|\Sig_t-\Sig_0\|_F$ (how far the covariance has moved) and the
+off-tridiagonal Frobenius mass of $Q_t$ (how non-tridiagonal the precision is).
+The latter rises from zero, peaks at intermediate $t$, and falls back to zero as
+$Q_t\to I$---the band fills and then empties.
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.74\linewidth]{figures/fig_tridiag_loss.png}
+\caption{\textbf{Loss then recovery of structure.} $\|\Sig_t-\Sig_0\|_F$ (navy)
+grows monotonically as the covariance is driven to $I$; the off-tridiagonal mass
+of $Q_t$ (red) rises, peaks, and decays---the precision leaves and then returns
+to a diagonal form.}
+\label{fig:tridiagloss}
+\end{figure}
+
+% =============================================================================
+\section{Summary}\label{sec:summary}
+% =============================================================================
+
+\begin{itemize}[leftmargin=1.4em, itemsep=2pt]
+\item The joint score of the Gaussian \textsc{ar}(1)$+$OU model is linear,
+  $S(x,t)=-\Sig_t^{-1}x$, equal to the Tweedie denoiser
+  $S_k=(e^{-t}\langle a_k\rangle_{a\given x}-x_k)/\Dt$.
+\item The posterior is a Gaussian caterpillar tree; BP is exact. The forward
+  sweep is the Kalman filter, the forward--backward combination the RTS smoother,
+  and the messages are Gaussian by \emph{exact closure}---resolving the doubt
+  about Gaussianity without invoking any central limit theorem.
+\item BP reconstructs $\Sig_t^{-1}$ and hence the score at machine precision.
+\item BP and AMP give the \emph{same score} (the mean solves the same linear
+  system); they differ only in the variance, where AMP's dense-graph closure is
+  accurate at weak coupling but breaks down on the degree-two chain---making
+  precise why ``a CLT on two points'' need not hold.
+\item Locality (Exp.\ A) and the band-fill lifecycle of $Q_t$ (Exp.\ B) are two
+  views of the same off-diagonal decay: the score is genuinely tridiagonal at
+  $t=0$, dense for $t>0$, and isotropic ($Q_t\to I$) as $t\to\infty$.
+\end{itemize}
+
+All quantitative statements are checked independently in
+\texttt{code/numerical\_audit.py} (59/59 pass) and reproduced by the companion
+notebook.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
