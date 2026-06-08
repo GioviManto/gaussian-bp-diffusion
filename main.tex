@@ -90,7 +90,8 @@
 \title{\bfseries Gaussian Belief Propagation for the Diffusion Score\\[2pt]
 \large A fully solvable AR(1) chain: factor graph, sum--product,
 Kalman, and AMP}
-\author{Giovanni Mantovani \and Marco \\[2pt]
+\author{Giovanni Mantovani\\[2pt]
+\small Bocconi University, MSc Data Science\\[1pt]
 \small supervised by M.\ M\'ezard and J.\ Garnier-Brun}
 \date{\today}
 
@@ -604,8 +605,13 @@ point they return the \emph{same exact mean}---hence, via Tweedie
  \text{AMP/TAP: } V_i=\frac{1}{J_{ii}-\sum_{k\ne i}J_{ik}^2 V_k};\qquad
  \text{BP/exact: } V_i=(J^{-1})_{ii}.
 \]
-The AMP closure is the cavity variance with the ``exclude one neighbour''
-correction dropped ($V_{k\to i}\approx V_k$). Dropping it is harmless when each
+The mean recursion is \emph{untouched}: the cavity/TAP approximation modifies
+only the variance closure, while the stationarity condition for the mean stays
+$Jm=h$ exactly. There is therefore no separate ``AMP mean'' iteration to run---
+the score is closure-independent, which is exactly why BP and AMP return the
+same score. The AMP closure is the cavity variance with the ``exclude one
+neighbour'' correction dropped ($V_{k\to i}\approx V_k$). Dropping it is
+harmless when each
 node has \emph{many} weak neighbours---removing one changes the cavity by
 $O(1/N)$, the dense regime where AMP is exact---but on the chain each node has
 \emph{two} neighbours and removing one is an $O(1)$ change. This is precisely
