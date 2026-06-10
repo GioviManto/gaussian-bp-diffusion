@@ -8,10 +8,10 @@ the joint score
 
     S_k(x, t) = (exp(-t) E[a_k | x] - x_k) / Delta_t
 
-via Tweedie's identity. The construction is derived in
-bp_session_summary.pdf, Convention A; this implementation is rewritten
-from scratch and validated by numerical_audit.py against the matrix
-posterior. Cost is O(K) scalar operations.
+via Tweedie's identity. The construction is derived in main.pdf,
+section 8 (Convention A: local evidence enters at combination time,
+never inside a recursion); this implementation is validated by
+numerical_audit.py against the matrix posterior. Cost is O(K).
 
 The factor graph of the chain is a tree, the AR(1) prior is Gaussian
 and the OU corruption is independent per frame, so all messages remain
@@ -19,9 +19,8 @@ Gaussian. Each message is therefore represented by two scalars (mean,
 variance); a variance of +infty represents the uninformative initial
 backward message and is handled exactly.
 
-References (Established):
-    [B1] bp_session_summary.pdf, Propositions 1, 2, 3 and section 4.4
-    [G1] Gaussian_session_summary.pdf, equation (10) -- joint score
+References:
+    main.pdf sections 8-10 (Convention A, K=3 worked example, Kalman/RTS).
 """
 
 from __future__ import annotations

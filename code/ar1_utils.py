@@ -20,9 +20,9 @@ For Gaussian P_0 the joint score is exactly affine in x:
     S(x, t) = - Sigma_t^{-1} (x - exp(-t) mu_a)
 where mu_a is the prior mean vector mu_a[k] = alpha^k mu_0.
 
-References (Established):
-    [G1] Gaussian_session_summary.pdf, sections 2.2-2.4
-    [P1] precision_lifecycle_summary.pdf, sections 2.1-2.3, 3.1-3.3
+References:
+    main.pdf sections 2-5 (model, clean/noisy joint, score two ways)
+    and section 14 (three forms of Q_t, spectral preservation).
 """
 
 from __future__ import annotations

@@ -20,6 +20,11 @@ Sections
     7. AMP mean == exact mean == BP score (the score is closure-independent).
     8. AMP variance: accurate on a dense graph, breakdown on the chain.
     9. Local (radius-r) BP -> full BP as r -> K-1; error monotone in r.
+   10. K = 2 fully explicit closed forms (Sigma_t, Q_t, score).
+   11. Homogeneous-chain (bulk) closed forms: exact bulk variance
+       1/sqrt(J_d^2-4beta^2); BP cavity fixed point exists for all (alpha,t)
+       and recombines to the exact variance; AMP bulk variance formula and
+       the existence boundary J_d >= 2*sqrt(2)*|beta|.
 
 Tolerance bands:
     matrix algebra / inverses        : 1e-10 .. 1e-12
@@ -53,7 +58,21 @@ from amp import (
     mean_iteration,
     posterior_precision_field,
 )
-from local_bp import local_score
+from local_bp import local_score, rms_truncation_error
+from chain_formulas import (
+    amp_bulk_variance,
+    amp_critical_time,
+    amp_fixed_point_exists,
+    amp_weak_coupling_error,
+    bp_cavity_precision,
+    bulk_correlation_decay,
+    bulk_covariance,
+    bulk_params,
+    bulk_variance_exact,
+    k2_precision_t,
+    k2_score,
+    k2_sigma_t,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +330,172 @@ def check_local_vs_full() -> list[Check]:
 
 
 # ---------------------------------------------------------------------------
+# 10. K = 2 fully explicit closed forms
+# ---------------------------------------------------------------------------
+
+def check_k2_closed_forms() -> list[Check]:
+    rng = np.random.default_rng(30)
+    err_sig = err_prec = err_score = 0.0
+    for alpha in (0.3, 0.7, 0.95, -0.5):
+        Sigma_0 = ar1_covariance(2, alpha)
+        for t in (0.01, 0.2, 1.0, 4.0):
+            err_sig = max(err_sig, float(np.max(np.abs(
+                k2_sigma_t(alpha, t) - sigma_t(Sigma_0, t)))))
+            err_prec = max(err_prec, float(np.max(np.abs(
+                k2_precision_t(alpha, t) - precision_t(Sigma_0, t)))))
+            for _ in range(5):
+                x = rng.standard_normal(2)
+                err_score = max(err_score, float(np.max(np.abs(
+                    k2_score(x, alpha, t)
+                    - joint_score_matrix(x, t, Sigma_0, alpha)))))
+    return [
+        Check("K=2 closed-form Sigma_t (16 configs)", err_sig, 1e-12),
+        Check("K=2 closed-form Q_t (16 configs)", err_prec, 1e-12),
+        Check("K=2 closed-form score (80 cases)", err_score, 1e-12),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 11. Homogeneous-chain (bulk) closed forms: exact variance, BP cavity,
+#     AMP fixed point and existence boundary
+# ---------------------------------------------------------------------------
+
+def check_bulk_closed_forms() -> list[Check]:
+    rng = np.random.default_rng(31)
+    out: list[Check] = []
+
+    # (a) Exact bulk variance 1/sqrt(J_d^2-4beta^2) vs brute-force inverse
+    #     at the centre of a long chain (boundary effects decay geometrically).
+    K = 400
+    err = 0.0
+    for alpha in (0.2, 0.5, 0.8, 0.95, -0.6):
+        for t in (0.05, 0.3, 1.0, 3.0):
+            J, _ = posterior_precision_field(rng.standard_normal(K), t, alpha)
+            v_bf = float(np.linalg.inv(J)[K // 2, K // 2])
+            v_cf = bulk_variance_exact(alpha, t)
+            err = max(err, abs(v_bf - v_cf) / v_cf)
+    out.append(Check("bulk variance = 1/sqrt(J_d^2-4b^2) (20 configs, K=400)",
+                     err, 1e-9))
+
+    # (b) BP cavity fixed point: existence margin J_d - 2|beta| > 0 on a grid,
+    #     and the recombination identity J_d - 2 b^2/lambda* = sqrt(J_d^2-4b^2).
+    margin = np.inf
+    err_recomb = 0.0
+    for alpha in np.linspace(-0.99, 0.99, 67):
+        for t in np.logspace(-3, 1.5, 30):
+            J_d, beta = bulk_params(alpha, t)
+            margin = min(margin, J_d - 2.0 * abs(beta))
+            lam = bp_cavity_precision(alpha, t)
+            lhs = J_d - 2.0 * beta * beta / lam
+            rhs = np.sqrt(J_d * J_d - 4.0 * beta * beta)
+            err_recomb = max(err_recomb, abs(lhs - rhs) / rhs)
+    out.append(Check("BP cavity exists for all (alpha,t): min margin > 0",
+                     0.0 if margin > 0 else 1.0, 0.0))
+    out.append(Check("BP recombination identity (2010-point grid)",
+                     err_recomb, 1e-12))
+
+    # (c) AMP bulk variance formula vs the self-consistent iteration,
+    #     at the centre of a long chain, where the fixed point exists.
+    K = 400
+    err = 0.0
+    n_cmp = 0
+    for alpha in (0.3, 0.6, 0.8):
+        for t in (0.02, 0.05, 0.1, 0.2):
+            v_cf = amp_bulk_variance(alpha, t)
+            if np.isnan(v_cf):
+                continue
+            J, _ = posterior_precision_field(rng.standard_normal(K), t, alpha)
+            v_it, _, ok = amp_variance(J)
+            if not ok:
+                continue
+            err = max(err, abs(float(v_it[K // 2]) - v_cf) / v_cf)
+            n_cmp += 1
+    out.append(Check(f"AMP bulk variance closed form ({n_cmp} configs, K=400)",
+                     err, 1e-8))
+
+    # (d) AMP existence boundary J_d >= 2*sqrt(2)*|beta| predicts whether the
+    #     iteration on a long finite chain converges (180-point scan).
+    K = 200
+    n_disagree = 0
+    n_total = 0
+    for alpha in (0.3, 0.5, 0.7, 0.85, 0.95):
+        for t in np.logspace(-2.5, 1.0, 36):
+            predicted = amp_fixed_point_exists(alpha, t)
+            J, _ = posterior_precision_field(rng.standard_normal(K), t, alpha)
+            _, _, ok = amp_variance(J)
+            n_disagree += (predicted != ok)
+            n_total += 1
+    out.append(Check(f"AMP existence boundary vs iteration ({n_total} pts)",
+                     float(n_disagree), 0.0))
+
+    # (e) Full bulk posterior covariance (J^{-1})_{i,i+d} = q^d V_exact,
+    #     q = bulk_correlation_decay, vs brute-force inversion.
+    K = 400
+    err = 0.0
+    for alpha in (0.5, 0.8, 0.95):
+        for t in (0.05, 0.5, 2.0):
+            J, _ = posterior_precision_field(rng.standard_normal(K), t, alpha)
+            Jinv = np.linalg.inv(J)
+            i = K // 2
+            for d in range(0, 6):
+                pred = bulk_covariance(alpha, t, d)
+                err = max(err, abs(float(Jinv[i, i + d]) - pred) / pred)
+    out.append(Check("bulk covariance (J^-1)_{i,i+d} = q^d V (9 configs, d<=5)",
+                     err, 1e-8))
+
+    # (f) Weak-coupling AMP error: (V_amp - V_exact) / (2 b^4 / J_d^5) -> 1.
+    worst = 0.0
+    for alpha in (0.2, 0.3, 0.4):
+        for t in (0.01, 0.02):
+            ratio = ((amp_bulk_variance(alpha, t)
+                      - bulk_variance_exact(alpha, t))
+                     / amp_weak_coupling_error(alpha, t))
+            worst = max(worst, abs(ratio - 1.0))
+    out.append(Check("AMP weak-coupling error = 2b^4/J_d^5 (ratio->1)",
+                     worst, 0.02))
+
+    # (g) Locality error decay rate: the exact RMS truncation error of the
+    #     radius-r estimator decays in r with slope log q (within 1%).
+    K, alpha = 121, 0.8
+    worst = 0.0
+    for t in (0.1, 0.5, 2.0):
+        rms = [rms_truncation_error(K, alpha, t, K // 2, r)
+               for r in range(0, 15)]
+        rs = np.arange(2, 14)
+        slope = float(np.polyfit(rs, np.log([rms[r] for r in rs]), 1)[0])
+        worst = max(worst, abs(slope / np.log(bulk_correlation_decay(alpha, t))
+                               - 1.0))
+    out.append(Check("locality RMS error decay slope = log q (3 t's, 1%)",
+                     worst, 0.01))
+
+    # (h) Exact AMP breakdown time t_c(alpha) and the critical coupling
+    #     alpha_c = sqrt(2)-1: bisection of the iteration's flip point on a
+    #     long chain must match the closed form; below alpha_c the iteration
+    #     must converge even at very large t.
+    K = 300
+    worst = 0.0
+    for alpha in (0.5, 0.7):
+        tc = amp_critical_time(alpha)
+        lo, hi = 1e-3, 20.0
+        for _ in range(40):
+            mid = float(np.sqrt(lo * hi))
+            J, _ = posterior_precision_field(rng.standard_normal(K), mid, alpha)
+            _, _, ok = amp_variance(J)
+            lo, hi = (mid, hi) if ok else (lo, mid)
+        worst = max(worst, abs(float(np.sqrt(lo * hi)) - tc) / tc)
+    out.append(Check("AMP breakdown time t_c closed form (bisection, 0.5%)",
+                     worst, 5e-3))
+    ok_below = True
+    for alpha in (0.2, 0.41):
+        J, _ = posterior_precision_field(rng.standard_normal(K), 50.0, alpha)
+        _, _, ok = amp_variance(J)
+        ok_below = ok_below and ok and np.isinf(amp_critical_time(alpha))
+    out.append(Check("below alpha_c = sqrt(2)-1 AMP never breaks down",
+                     0.0 if ok_below else 1.0, 0.0))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -325,6 +510,8 @@ def run_all() -> int:
     checks += check_amp_mean_equals_bp()
     checks += check_amp_variance_regimes()
     checks += check_local_vs_full()
+    checks += check_k2_closed_forms()
+    checks += check_bulk_closed_forms()
 
     n_total = len(checks)
     n_fail = sum(1 for c in checks if not c.passed)

@@ -75,6 +75,44 @@ def local_score(x: np.ndarray, t: float, alpha: float, radius: int,
     return (mu * m - np.asarray(x, dtype=float)) / Delta
 
 
+# ---------------------------------------------------------------------------
+# Exact (deterministic) RMS truncation error
+# ---------------------------------------------------------------------------
+
+def _smoother_matrix(K: int, alpha: float, t: float,
+                     sigma_eta: float | None = None) -> np.ndarray:
+    """The full-chain smoother C with E[a | x] = C x  (linear, Gaussian)."""
+    from ar1_utils import ar1_precision_clean
+    mu, Delta = ou_params(t)
+    J = (mu * mu / Delta) * np.eye(K) + ar1_precision_clean(K, alpha, sigma_eta)
+    return np.linalg.solve(J, (mu / Delta) * np.eye(K))
+
+
+def rms_truncation_error(K: int, alpha: float, t: float, k: int, radius: int,
+                         sigma_eta: float | None = None) -> float:
+    """Exact RMS error of the radius-r local estimator at frame k:
+
+        RMS_r(k) = sqrt( E_{x ~ P_t} [ ( E[a_k|x] - E[a_k|x_window] )^2 ] ).
+
+    Both estimators are LINEAR in x, so the error is e . x for a deterministic
+    row vector e, and the RMS over x ~ N(0, Sigma_t) is sqrt(e' Sigma_t e):
+    a closed-form deterministic quantity, no sampling involved.
+
+    The audit verifies that log RMS_r decays in r with slope log q, where
+    q = chain_formulas.bulk_correlation_decay(alpha, t): the locality error
+    inherits exactly the posterior correlation decay rate.
+    """
+    mu, Delta = ou_params(t)
+    Sigma_0 = ar1_covariance(K, alpha, sigma_eta)
+    Sigma_t = mu * mu * Sigma_0 + Delta * np.eye(K)
+
+    e = _smoother_matrix(K, alpha, t, sigma_eta)[k].copy()
+    lo, hi = max(0, k - radius), min(K - 1, k + radius)
+    Cw = _smoother_matrix(hi - lo + 1, alpha, t, sigma_eta)
+    e[lo:hi + 1] -= Cw[k - lo]
+    return float(np.sqrt(e @ Sigma_t @ e))
+
+
 if __name__ == "__main__":
     from ar1_utils import ar1_covariance as _cov, joint_score_matrix
 

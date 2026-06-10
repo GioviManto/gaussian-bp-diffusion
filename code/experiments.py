@@ -32,7 +32,11 @@ from amp import (
     amp_variance, exact_marginals, mean_field_variance,
     posterior_precision_field,
 )
-from local_bp import local_score
+from local_bp import local_score, rms_truncation_error
+from chain_formulas import (
+    amp_bulk_variance, amp_critical_time, bulk_correlation_decay,
+    bulk_params, bulk_variance_exact,
+)
 
 FIGDIR = os.path.join(os.path.dirname(__file__), "..", "figures")
 
@@ -178,36 +182,73 @@ def fig_spectral(K=24, alpha=0.85):
 # Exp A -- local (radius-r) vs full BP
 # ---------------------------------------------------------------------------
 
-def fig_local_vs_full(K=21, alpha=0.8, seed=3):
-    rng = np.random.default_rng(seed)
-    Sigma_0 = ar1_covariance(K, alpha)
-    x = rng.standard_normal(K)
-    radii = list(range(0, 11))
+def fig_local_vs_full(K=121, alpha=0.8):
+    """Exact (deterministic) RMS truncation error of the radius-r local
+    estimator at the centre frame, against the predicted geometric decay
+    q^r with q = bulk_correlation_decay(alpha, t)."""
+    radii = list(range(0, 13))
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(10, 4.2))
     for t, c in [(0.1, RED), (0.5, NAVY), (2.0, GREEN)]:
-        s_full = joint_score_matrix(x, t, Sigma_0, alpha)
-        errs = [np.max(np.abs(local_score(x, t, alpha, r) - s_full))
-                for r in radii]
-        axL.semilogy(radii, errs, "o-", ms=4, color=c, label=f"$t={t:g}$")
-    axL.set_xlabel(r"local radius $r$ (messages travel $r$ frames)")
-    axL.set_ylabel(r"$\max_k|S^{\mathrm{local}}_k-S^{\mathrm{full}}_k|$")
-    axL.set_title("Locality error decays with range $r$\n"
-                  "(full BP = exact; $r{=}K{-}1$ is exact)")
+        rms = [rms_truncation_error(K, alpha, t, K // 2, r) for r in radii]
+        axL.semilogy(radii, rms, "o", ms=5, color=c, label=f"$t={t:g}$")
+        q = bulk_correlation_decay(alpha, t)
+        # anchor the predicted slope at r=2
+        pred = [rms[2] * q ** (r - 2) for r in radii]
+        axL.semilogy(radii, pred, "--", lw=1.3, color=c, alpha=0.8)
+    axL.set_xlabel(r"local radius $r$ (window $x_{k-r},\dots,x_{k+r}$)")
+    axL.set_ylabel(r"exact RMS truncation error RMS$_r$")
+    axL.set_title("Locality error decays exactly as $q^{\\,r}$\n"
+                  "(dashed: predicted slope)")
     axL.legend(fontsize=9, framealpha=0.3)
 
-    ts = np.logspace(-1.3, 0.8, 40)
+    ts = np.logspace(-1.6, 0.9, 50)
     for r, c in [(1, RED), (2, NAVY), (4, GREEN)]:
-        errs = []
-        for t in ts:
-            s_full = joint_score_matrix(x, t, Sigma_0, alpha)
-            errs.append(np.max(np.abs(local_score(x, t, alpha, r) - s_full)))
-        axR.semilogy(ts, errs, "-", lw=2, color=c, label=f"$r={r}$")
+        rms = [rms_truncation_error(K, alpha, t, K // 2, r) for t in ts]
+        axR.semilogy(ts, rms, "-", lw=2, color=c, label=f"$r={r}$")
+    axR.set_xscale("log")
     axR.set_xlabel(r"diffusion time $t$")
-    axR.set_ylabel(r"$\max_k|S^{\mathrm{local}}_k-S^{\mathrm{full}}_k|$")
-    axR.set_title("Strictly-neighbour ($r{=}1$) and short-range error\n"
-                  "vs diffusion time")
+    axR.set_ylabel(r"RMS$_r$ at centre frame")
+    axR.set_title("Truncation error vs diffusion time:\n"
+                  "worst at intermediate $t$")
     axR.legend(fontsize=9, framealpha=0.3)
     _save(fig, "fig_local_vs_full.png")
+
+
+# ---------------------------------------------------------------------------
+# Bulk variance closed forms: exact / BP vs AMP vs mean field
+# ---------------------------------------------------------------------------
+
+def fig_bulk_variance():
+    """Left: bulk posterior variance vs t at alpha = 0.8 -- exact (= BP),
+    AMP closed form (ends at t_c), mean field.  Right: same at alpha = 0.3
+    (below alpha_c = sqrt(2)-1: AMP never breaks down)."""
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.2))
+    for ax, alpha in zip(axes, (0.8, 0.3)):
+        ts = np.logspace(-2, 1.0, 300)
+        v_ex = [bulk_variance_exact(alpha, t) for t in ts]
+        v_amp = [amp_bulk_variance(alpha, t) for t in ts]
+        v_mf = [1.0 / bulk_params(alpha, t)[0] for t in ts]
+        ax.semilogx(ts, v_ex, "-", lw=2.4, color=NAVY,
+                    label=r"exact $=$ BP: $1/\sqrt{J_d^2-4\beta^2}$")
+        ax.semilogx(ts, v_amp, "-", lw=2.0, color=RED,
+                    label=r"AMP: $(J_d-\sqrt{J_d^2-8\beta^2})/4\beta^2$")
+        ax.semilogx(ts, v_mf, ":", lw=1.8, color=GOLD,
+                    label=r"mean field: $1/J_d$")
+        tc = amp_critical_time(alpha)
+        if np.isfinite(tc):
+            ax.axvline(tc, color=RED, lw=1.0, ls="--", alpha=0.8)
+            ax.axvspan(tc, ts[-1], color=RED, alpha=0.07)
+            ax.text(tc * 1.1, 0.05, r"$t_c$: AMP fixed point"
+                    "\nceases to exist", color=RED, fontsize=9)
+            ax.set_title(rf"$\alpha={alpha} > \alpha_c$: AMP breaks down "
+                         rf"at $t_c={tc:.3f}$")
+        else:
+            ax.set_title(rf"$\alpha={alpha} < \alpha_c=\sqrt{{2}}-1$: "
+                         "AMP exists at every $t$")
+        ax.set_xlabel(r"diffusion time $t$")
+        ax.set_ylabel("bulk posterior variance")
+        ax.legend(fontsize=8.5, framealpha=0.3, loc="upper left")
+    _save(fig, "fig_bulk_variance.png")
 
 
 # ---------------------------------------------------------------------------
@@ -260,10 +301,19 @@ def fig_bp_vs_amp(K=9, alpha=0.8, seed=21):
             Z[ia, it] = 1.0 if ok else 0.0
     im = axR.pcolormesh(tgrid, alphas, Z, cmap="RdYlGn", shading="auto",
                         vmin=0, vmax=1)
+    # overlay the EXACT analytic phase boundary t_c(alpha)
+    a_bdry = np.linspace(np.sqrt(2.0) - 1.0 + 1e-4, 0.95, 200)
+    t_bdry = [amp_critical_time(a) for a in a_bdry]
+    axR.plot(t_bdry, a_bdry, "-", color=INK, lw=2.2,
+             label=r"exact boundary $J_d=2\sqrt{2}\,|\beta|$")
+    axR.axhline(np.sqrt(2.0) - 1.0, color=INK, lw=1.2, ls="--")
+    axR.text(1.4e-2, np.sqrt(2.0) - 1.0 + 0.015,
+             r"$\alpha_c=\sqrt{2}-1$", fontsize=10, color=INK)
     axR.set_xscale("log")
     axR.set_xlabel(r"diffusion time $t$"); axR.set_ylabel(r"AR(1) coupling $\alpha$")
     axR.set_title("Where the AMP variance fixed point exists\n"
-                  "(green = exists, red = breakdown)")
+                  "(green = iteration converges; black = exact boundary)")
+    axR.legend(fontsize=9, framealpha=0.6, loc="lower left")
     axR.grid(False)
     _save(fig, "fig_bp_vs_amp.png")
 
@@ -276,6 +326,7 @@ def main():
     fig_spectral()
     fig_local_vs_full()
     fig_bp_vs_amp()
+    fig_bulk_variance()
     print("done.")
 
 
